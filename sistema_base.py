@@ -6,10 +6,10 @@ import json
 import os
 import io
 import sys
-import streamlit as st
 
 # ===== CONFIGURACIÓN =====
 GOOGLE_SHEET_ID = "1rHnBFkFbfMpxsN95QoI8ojxkIBkaD7WWisnkRwCCCA0"
+ARCHIVO_CREDENCIALES = "credenciales.json"
 DIAS_ANTICIPACION = 60  # 2 MESES
 
 # Silenciar prints cuando se usa en web
@@ -18,36 +18,18 @@ class SilentOutput:
     def flush(self): pass
 
 def conectar_google_sheets():
-    """Conecta con Google Sheets usando Secrets de Streamlit o archivo local"""
+    """Conecta con Google Sheets y retorna el cliente y todas las hojas"""
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_file(ARCHIVO_CREDENCIALES, scopes=scope)
+        client = gspread.authorize(creds)
         
-        # INTENTAR USAR SECRETS DE STREAMLIT CLOUD
-        try:
-            if 'google_sheets' in st.secrets:
-                creds_dict = dict(st.secrets["google_sheets"])
-                creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-                client = gspread.authorize(creds)
-                sheet = client.open_by_key(GOOGLE_SHEET_ID)
-                todas_las_hojas = sheet.worksheets()
-                return client, sheet, todas_las_hojas
-        except Exception as e:
-            pass
+        sheet = client.open_by_key(GOOGLE_SHEET_ID)
+        todas_las_hojas = sheet.worksheets()
         
-        # FALLBACK: USAR ARCHIVO LOCAL
-        ARCHIVO_CREDENCIALES = "credenciales.json"
-        if os.path.exists(ARCHIVO_CREDENCIALES):
-            creds = Credentials.from_service_account_file(ARCHIVO_CREDENCIALES, scopes=scope)
-            client = gspread.authorize(creds)
-            sheet = client.open_by_key(GOOGLE_SHEET_ID)
-            todas_las_hojas = sheet.worksheets()
-            return client, sheet, todas_las_hojas
-        else:
-            st.error("❌ No se encontraron credenciales. Verifica que el archivo credenciales.json exista o que los Secrets estén configurados en Streamlit Cloud.")
-            return None, None, []
-            
+        return client, sheet, todas_las_hojas
+        
     except Exception as e:
-        st.error(f"❌ Error al conectar con Google Sheets: {str(e)}")
         return None, None, []
 
 def procesar_hoja(worksheet):
@@ -173,35 +155,33 @@ def verificar_vencimientos_en_hoja_con_dias(df, columnas, nombre_hoja, dias_anti
                 fecha_convertida = extraer_fecha(fecha_to)
                 
                 # INCLUIR TANTO VENCIDOS COMO POR VENCER
-                if fecha_convertida:
+                if fecha_convertida and fecha_convertida <= fecha_limite:
                     dias_restantes = (fecha_convertida - hoy).days
                     
-                    # INCLUIR TODOS LOS VEHÍCULOS VENCIDOS Y LOS QUE ESTÁN DENTRO DEL PERÍODO
-                    if fecha_convertida <= fecha_limite:
-                        placa = row[columnas['placa']] if columnas['placa'] and pd.notna(row[columnas['placa']]) else f"Veh_{index+2}"
-                        chasis = row[columnas['chasis']] if columnas['chasis'] and pd.notna(row[columnas['chasis']]) else "N/A"
-                        modelo = row[columnas['modelo']] if columnas['modelo'] and pd.notna(row[columnas['modelo']]) else "N/A"
-                        
-                        # Determinar estado
-                        if dias_restantes < 0:
-                            estado = 'VENCIDO'
-                        else:
-                            estado = 'POR VENCER'
-                        
-                        licencia_info = {
-                            'HOJA': nombre_hoja,
-                            'FILA': index + 2,
-                            'PLACA': placa,
-                            'CHASIS': chasis,
-                            'MODELO': modelo,
-                            'TIPO_DOCUMENTO': 'T.O',
-                            'FECHA_VENCIMIENTO': fecha_convertida.strftime('%d/%m/%Y'),
-                            'DIAS_RESTANTES': dias_restantes,
-                            'ESTADO': estado,
-                            'COLUMNA_FECHA': columna_fecha_to
-                        }
-                        
-                        licencias_por_vencer.append(licencia_info)
+                    placa = row[columnas['placa']] if columnas['placa'] and pd.notna(row[columnas['placa']]) else f"Veh_{index+2}"
+                    chasis = row[columnas['chasis']] if columnas['chasis'] and pd.notna(row[columnas['chasis']]) else "N/A"
+                    modelo = row[columnas['modelo']] if columnas['modelo'] and pd.notna(row[columnas['modelo']]) else "N/A"
+                    
+                    # Determinar estado
+                    if dias_restantes < 0:
+                        estado = 'VENCIDO'
+                    else:
+                        estado = 'POR VENCER'
+                    
+                    licencia_info = {
+                        'HOJA': nombre_hoja,
+                        'FILA': index + 2,
+                        'PLACA': placa,
+                        'CHASIS': chasis,
+                        'MODELO': modelo,
+                        'TIPO_DOCUMENTO': 'T.O',
+                        'FECHA_VENCIMIENTO': fecha_convertida.strftime('%d/%m/%Y'),
+                        'DIAS_RESTANTES': dias_restantes,
+                        'ESTADO': estado,
+                        'COLUMNA_FECHA': columna_fecha_to
+                    }
+                    
+                    licencias_por_vencer.append(licencia_info)
                     
             except Exception:
                 continue
@@ -215,35 +195,33 @@ def verificar_vencimientos_en_hoja_con_dias(df, columnas, nombre_hoja, dias_anti
                 fecha_convertida = extraer_fecha(fecha_poliza)
                 
                 # INCLUIR TANTO VENCIDOS COMO POR VENCER
-                if fecha_convertida:
+                if fecha_convertida and fecha_convertida <= fecha_limite:
                     dias_restantes = (fecha_convertida - hoy).days
                     
-                    # INCLUIR TODOS LOS VEHÍCULOS VENCIDOS Y LOS QUE ESTÁN DENTRO DEL PERÍODO
-                    if fecha_convertida <= fecha_limite:
-                        placa = row[columnas['placa']] if columnas['placa'] and pd.notna(row[columnas['placa']]) else f"Veh_{index+2}"
-                        chasis = row[columnas['chasis']] if columnas['chasis'] and pd.notna(row[columnas['chasis']]) else "N/A"
-                        modelo = row[columnas['modelo']] if columnas['modelo'] and pd.notna(row[columnas['modelo']]) else "N/A"
-                        
-                        # Determinar estado
-                        if dias_restantes < 0:
-                            estado = 'VENCIDO'
-                        else:
-                            estado = 'POR VENCER'
-                        
-                        licencia_info = {
-                            'HOJA': nombre_hoja,
-                            'FILA': index + 2,
-                            'PLACA': placa,
-                            'CHASIS': chasis,
-                            'MODELO': modelo,
-                            'TIPO_DOCUMENTO': 'PÓLIZA',
-                            'FECHA_VENCIMIENTO': fecha_convertida.strftime('%d/%m/%Y'),
-                            'DIAS_RESTANTES': dias_restantes,
-                            'ESTADO': estado,
-                            'COLUMNA_FECHA': columna_fecha_poliza
-                        }
-                        
-                        licencias_por_vencer.append(licencia_info)
+                    placa = row[columnas['placa']] if columnas['placa'] and pd.notna(row[columnas['placa']]) else f"Veh_{index+2}"
+                    chasis = row[columnas['chasis']] if columnas['chasis'] and pd.notna(row[columnas['chasis']]) else "N/A"
+                    modelo = row[columnas['modelo']] if columnas['modelo'] and pd.notna(row[columnas['modelo']]) else "N/A"
+                    
+                    # Determinar estado
+                    if dias_restantes < 0:
+                        estado = 'VENCIDO'
+                    else:
+                        estado = 'POR VENCER'
+                    
+                    licencia_info = {
+                        'HOJA': nombre_hoja,
+                        'FILA': index + 2,
+                        'PLACA': placa,
+                        'CHASIS': chasis,
+                        'MODELO': modelo,
+                        'TIPO_DOCUMENTO': 'PÓLIZA',
+                        'FECHA_VENCIMIENTO': fecha_convertida.strftime('%d/%m/%Y'),
+                        'DIAS_RESTANTES': dias_restantes,
+                        'ESTADO': estado,
+                        'COLUMNA_FECHA': columna_fecha_poliza
+                    }
+                    
+                    licencias_por_vencer.append(licencia_info)
                     
             except Exception:
                 continue
