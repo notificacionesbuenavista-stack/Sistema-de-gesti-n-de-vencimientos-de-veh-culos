@@ -18,11 +18,38 @@ class SilentOutput:
     def flush(self): pass
 
 def conectar_google_sheets():
-    """Conecta con Google Sheets usando Secrets de Streamlit o archivo local"""
+    """Conecta con Google Sheets usando Secrets de Streamlit, Secret Files de Render o archivo local"""
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
-        # INTENTAR USAR SECRETS DE STREAMLIT CLOUD
+        # PRIORIDAD 1: Secret Files de Render (RENDER_EXTERNAL_URL indica que estamos en Render)
+        if 'RENDER' in os.environ or 'RENDER_EXTERNAL_URL' in os.environ:
+            # Render monta los Secret Files en /etc/secrets/
+            render_secret_path = '/etc/secrets/credenciales.json'
+            if os.path.exists(render_secret_path):
+                creds = Credentials.from_service_account_file(render_secret_path, scopes=scope)
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(GOOGLE_SHEET_ID)
+                todas_las_hojas = sheet.worksheets()
+                print(f"✅ Conectado via Render Secret File - {len(todas_las_hojas)} hojas encontradas")
+                return client, sheet, todas_las_hojas
+        
+        # PRIORIDAD 2: Variables de entorno en Render (fallback)
+        if 'GOOGLE_CREDENTIALS_JSON' in os.environ:
+            try:
+                import json
+                creds_json = os.environ['GOOGLE_CREDENTIALS_JSON']
+                creds_dict = json.loads(creds_json)
+                creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(GOOGLE_SHEET_ID)
+                todas_las_hojas = sheet.worksheets()
+                print(f"✅ Conectado via variables de entorno - {len(todas_las_hojas)} hojas encontradas")
+                return client, sheet, todas_las_hojas
+            except Exception as e:
+                print(f"❌ Error con variables de entorno: {str(e)}")
+        
+        # PRIORIDAD 3: Secrets de Streamlit
         try:
             if 'google_sheets' in st.secrets:
                 creds_dict = dict(st.secrets["google_sheets"])
@@ -30,20 +57,22 @@ def conectar_google_sheets():
                 client = gspread.authorize(creds)
                 sheet = client.open_by_key(GOOGLE_SHEET_ID)
                 todas_las_hojas = sheet.worksheets()
+                print(f"✅ Conectado via Streamlit secrets - {len(todas_las_hojas)} hojas encontradas")
                 return client, sheet, todas_las_hojas
         except Exception as e:
-            pass
+            print(f"❌ Error con Streamlit secrets: {str(e)}")
         
-        # FALLBACK: USAR ARCHIVO LOCAL
+        # PRIORIDAD 4: Archivo local (solo desarrollo)
         ARCHIVO_CREDENCIALES = "credenciales.json"
         if os.path.exists(ARCHIVO_CREDENCIALES):
             creds = Credentials.from_service_account_file(ARCHIVO_CREDENCIALES, scopes=scope)
             client = gspread.authorize(creds)
             sheet = client.open_by_key(GOOGLE_SHEET_ID)
             todas_las_hojas = sheet.worksheets()
+            print(f"✅ Conectado via archivo local - {len(todas_las_hojas)} hojas encontradas")
             return client, sheet, todas_las_hojas
         else:
-            st.error("❌ No se encontraron credenciales. Verifica que el archivo credenciales.json exista o que los Secrets estén configurados en Streamlit Cloud.")
+            st.error("❌ No se encontraron credenciales de Google Sheets.")
             return None, None, []
             
     except Exception as e:
