@@ -5,6 +5,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sistema_base import *
 
+# Cache para optimizar rendimiento
+@st.cache_data(ttl=3600)  # Cache de 1 hora
+def cargar_datos(dias_alertas):
+    client, sheet, todas_las_hojas = conectar_google_sheets()
+    if todas_las_hojas:
+        return procesar_todas_las_hojas_con_dias(todas_las_hojas, dias_alertas)
+    return [], {}
+
 def main():
     st.set_page_config(
         page_title="Grupo Buena Vista - Gestión de Vencimientos",
@@ -676,6 +684,8 @@ def main():
         
         if st.button("**🔄 Actualizar Datos**", use_container_width=True, type="primary"):
             st.session_state.actualizar = True
+            # Limpiar cache para forzar recarga
+            cargar_datos.clear()
         
         st.markdown("""
         <div class="info-text">
@@ -693,12 +703,8 @@ def main():
     # ===== CONTENIDO PRINCIPAL =====
     if 'actualizar' in st.session_state and st.session_state.actualizar:
         with st.spinner("🔄 Conectando con Google Sheets..."):
-            client, sheet, todas_las_hojas = conectar_google_sheets()
-            if todas_las_hojas:
-                todas_las_alertas, resumen_hojas = procesar_todas_las_hojas_con_dias(todas_las_hojas, dias_alertas)
-                mostrar_interfaz_moderna(todas_las_alertas, resumen_hojas, dias_alertas)
-            else:
-                st.error("❌ Error al conectar con Google Sheets")
+            todas_las_alertas, resumen_hojas = cargar_datos(dias_alertas)
+            mostrar_interfaz_moderna(todas_las_alertas, resumen_hojas, dias_alertas)
         st.session_state.actualizar = False
     else:
         # PANTALLA DE BIENVENIDA
